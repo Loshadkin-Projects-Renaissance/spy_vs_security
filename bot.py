@@ -337,7 +337,7 @@ def endturn(id):
               if games[id]['players'][ids]['disarmed']==0:            
                 bot.send_photo(games[id]['players'][ids]['id'], 'AgADAgAD06sxG7wwGEqukXmiDU8iF5zPtw4ABCn0Y60xUVfWDfgEAAEC')
                 sendacts(games[id]['players'][ids])
-              eles:
+              else:
                 games[id]['players'][ids]['ready']=1
             else:
                 games[id]['players'][ids]['lastloc']=games[id]['players'][ids]['location']
