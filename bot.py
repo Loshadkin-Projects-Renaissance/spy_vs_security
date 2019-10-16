@@ -64,6 +64,9 @@ nearlocs2={
 @bot.message_handler(commands=['stats'])
 def statsss(m):
     x=stats.find_one({})
+    if x==None:
+        bot.send_message(m.chat.id, 'Ошибка статистики.')
+        return
     text='Общая статистика:\nШпионы выигрывали: '+str(x['spywins'])+' раз(а)\nОхранники выигрывали: '+str(x['securitywins'])+' раз(а)'
     bot.send_message(m.chat.id, text)
 
