@@ -133,6 +133,7 @@ def startg(m):
     
 @bot.message_handler(commands=['join'])
 def join(m):
+  try:
     no=0
     if m.chat.id in games:
       if games[m.chat.id]['started']==0:
@@ -151,7 +152,8 @@ def join(m):
            bot.send_message(m.chat.id, 'Вы уже в игре!')
     else:
         bot.send_message(m.chat.id, 'Достигнуто максимальное число игроков!')
-    
+  except:
+    pass
  
 def testturn(id):
     i=0
