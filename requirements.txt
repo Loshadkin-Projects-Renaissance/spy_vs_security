@@ -1,4 +1,3 @@
 pyTelegramBotAPI
-redis
-emoji
 pymongo
+dnspython
