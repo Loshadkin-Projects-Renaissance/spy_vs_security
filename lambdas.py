@@ -5,3 +5,17 @@ def game_exists(m):
 
 def game_not_exists(m):
     return not game_exists(m)
+
+def game_not_started(m):
+    if game_not_exists(m):
+        return
+    return not game_data.get_game(m.chat.id).started
+
+def history_callback(c):
+    return 'history' in c.data
+
+def move_callback(c):
+    return game.is_player_playing(c.from_user.id) and c.data == 'move'
+
+def items_callback(c):
+    return game.is_player_playing(c.from_user.id) and c.data == 'items'
