@@ -203,10 +203,8 @@ class GameSession:
         else:
             if winner=='security':
                 bot.send_message(self.id, 'Победа охраны!')
-                stats.update_one({},{'$inc':{'securitywins':1}})
             else:
                 bot.send_message(self.id, 'Победа шпионов!')
-                stats.update_one({},{'$inc':{'spywins':1}})
             try:
                 del game_data[self.id]
             except:

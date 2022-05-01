@@ -3,7 +3,6 @@ import os
 import random
 import threading
 
-from pymongo import MongoClient
 from constants import *
 from game import game_data
 from lambdas import *
@@ -11,20 +10,6 @@ from config import *
 from startup import bot, types
 
 history={}
-
-client=MongoClient(mongo_url)
-db=client.spyvssecurity
-stats=db.stats
-
-
-@bot.message_handler(commands=['stats'])
-def stats_handler(m):
-    x=stats.find_one({})
-    if x==None:
-        bot.send_message(m.chat.id, 'Ошибка статистики.')
-        return
-    text='Общая статистика:\nШпионы выигрывали: '+str(x['spywins'])+' раз(а)\nОхранники выигрывали: '+str(x['securitywins'])+' раз(а)'
-    bot.send_message(m.chat.id, text)
 
 
 @bot.message_handler(commands=['creategame'], func=game_not_exists)
