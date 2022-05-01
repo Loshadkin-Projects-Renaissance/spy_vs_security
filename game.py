@@ -1,5 +1,7 @@
 from constants import *
 from startup import bot, types
+import random
+import threading
 
 class Game:
     def __init__(self):
@@ -17,6 +19,7 @@ class Game:
 
     def is_player_playing(self, user_id):
         for game in self.games:
+            game = self.games[game]
             for player in game.players:
                 if player.id == user_id and not player.ready:
                     return player
@@ -31,8 +34,7 @@ class GameSession:
         self.security = 0
         self.timer = None
         self.gametimer = None
-        self.locs = ['treasure','spystart','leftcorridor','rightcorridor','leftpass','rightpass','antiflashroom','midcorridor','stock']
-        self.flashed: []
+        self.flashed = []
         self.treasurestealed = False
         self.started = False
         self.texttohistory = ''
@@ -44,6 +46,10 @@ class GameSession:
         if len(ready_players) == len(self.players):
             self.gametimer.cancel()
             self.end_turn()
+
+    @property
+    def ready_players(self):
+        return [player for player in self.players if player.ready]
 
 
     def end_turn(self):
@@ -106,7 +112,7 @@ class GameSession:
                     
             if player.stealing and not player.treasure:
                 player.treasure = True
-                self.texttohistory+='Шпион '+player.name+' украл сокровище!\n\n'
+                self.texttohistory+=f'Шпион {player.name} украл сокровище!\n\n'
                 bot.send_message(player.id,'Вы успешно украли сокровище! Теперь выберитесь отсюда (Выход в той же локации, где вы начинали игру).')
             
             if player.role=='security':
@@ -136,7 +142,7 @@ class GameSession:
             hearinfo='Прослушиваемые вами локации в данный момент:\n'+locs+'\n' 
             for other_player in self.players:
                 if player.can_hear(other_player):
-                    if other_playerlocation != player.location:
+                    if other_player.location != player.location:
                         hearinfo+='Вы слышите движение в локации: '+loctoname(other_player.location)+'!\n'
                     else:
                         hearinfo+='Вы слышите движение в вашей текущей локации!!\n'
@@ -172,7 +178,7 @@ class GameSession:
                 if not player.flashed and not player.shocked:
                     if not player.disarmed:            
                         bot.send_photo(player.id, map_file_id)
-                        sendacts(player)
+                        player.send_acts()
                     else:
                         player.ready = True
                 else:
@@ -206,7 +212,7 @@ class GameSession:
             else:
                 bot.send_message(self.id, 'Победа шпионов!')
             try:
-                del game_data[self.id]
+                del game_data.games[self.id]
             except:
                 pass
 
@@ -260,10 +266,10 @@ class GameSession:
                 
         for player in self.players:
             player.lastloc = player.location
-            sendacts(player)
+            player.send_acts()
         bot.send_message(self.id, 'Игра начинается! Охранники, шпионы - по позициям!')
             
-        t=threading.Timer(90, endturn, args=[self.id])
+        t=threading.Timer(90, self.end_turn, args=[self.id])
         t.start()
         self.gametimer = t
 
@@ -274,7 +280,7 @@ class Player:
         self.game = game_data.get_game(chat_id)
 
         self.id = user_id
-        self.name = user_id
+        self.name = user_name
         self.location = None
         self.team = None
         self.items = []
@@ -299,7 +305,7 @@ class Player:
     def get_nearby_locations(self):
         nearby_locations = nearlocs[self.location]
         nearby_locations.append(self.location)
-        return nearby_locations
+        return set(nearby_locations)
 
     @property
     def nearby_locations(self):
@@ -309,6 +315,19 @@ class Player:
         return player.location in self.nearby_locations and \
                player.location!=player.lastloc and \
                not player.silent and self.role!=player.role
+
+    def send_acts(self):  
+        kb=types.InlineKeyboardMarkup()
+        kb.add(types.InlineKeyboardButton(text='Перемещение', callback_data='move'),types.InlineKeyboardButton(text='Предметы', callback_data='items'))
+        if self.role=='spy':
+            kb.add(types.InlineKeyboardButton(text='Инфо с камер', callback_data='camerainfo'))
+        if self.role=='security':
+            kb.add(types.InlineKeyboardButton(text='Камера в сокровищнице', callback_data='treasureinfo'))
+        kb.add(types.InlineKeyboardButton(text='Ожидать', callback_data='wait'))
+        if not self.flashed:
+            self.messagetoedit = bot.send_message(self.id,'Выберите действие.',reply_markup=kb)
+        else:
+            self.ready = True
 
 
 game_data = Game()

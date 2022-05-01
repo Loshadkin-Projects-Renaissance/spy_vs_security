@@ -9,7 +9,20 @@ from lambdas import *
 from config import *
 from startup import bot, types
 
-history={}
+
+@bot.message_handler(commands=['gameinfo'])
+def gameinfo_handler(m):
+    game = game_data.get_game(m.chat.id)
+    if not game:
+        bot.send_message(m.chat.id, 'Игра еще не запущена!')
+        return
+    tts = ''
+    tts += 'Инфо о игре:\n'
+    tts += f'Ход: {game.turn}/25\n'
+    tts += f'Игроков походило: {len(game.ready_players)}/{len(game.players)}'
+    bot.send_message(m.chat.id, tts)
+
+    
 
 
 @bot.message_handler(commands=['creategame'], func=game_not_exists)
@@ -89,31 +102,6 @@ def join_handler(m):
 
     game.join_player(m.from_user.id, m.from_user.first_name, m.chat.id)
     bot.send_message(m.chat.id, m.from_user.first_name+' присоединился!')
-
-                   
-def datagen(text):
-    word=''
-    for i in range(4):
-        word+=random.choice(symbollist)
-    if word in history:
-        return datagen(text)
-    else:
-        history.update({word:text})
-        return word
-  
-                                                                
-def sendacts(player):  
-    kb=types.InlineKeyboardMarkup()
-    kb.add(types.InlineKeyboardButton(text='Перемещение', callback_data='move'),types.InlineKeyboardButton(text='Предметы', callback_data='items'))
-    if player.role=='spy':
-        kb.add(types.InlineKeyboardButton(text='Инфо с камер', callback_data='camerainfo'))
-    if player.role=='security':
-        kb.add(types.InlineKeyboardButton(text='Камера в сокровищнице', callback_data='treasureinfo'))
-    kb.add(types.InlineKeyboardButton(text='Ожидать', callback_data='wait'))
-    if not player.flashed:
-        player.messagetoedit = bot.send_message(player.id,'Выберите действие.',reply_markup=kb)
-    else:
-        player.ready = True
                
               
 def cancelgame(id):
@@ -130,47 +118,52 @@ def medit(message_text,chat_id, message_id,reply_markup=None,parse_mode='Markdow
 
 
 @bot.callback_query_handler(func=history_callback)
-def history_callback_handler(call):
-    history_id = call.data.split(' ')[1]
+def history_callback_handler(c):
+    history_id = c.data.split(' ')[1]
     yes=0
     for game in game_data.games:
+        game = game_data.games[game]
         for player in game.players:
-            if player.id == call.from_user.id:
-                bot.send_message(call.message.chat.id, call.from_user.first_name+', нельзя смотреть историю, находясь в игре!')
+            if player.id == c.from_user.id:
+                bot.send_message(c.message.chat.id, c.from_user.first_name+', нельзя смотреть историю, находясь в игре!')
                 return
 
     if history_id not in history:
-        medit('История этой игры больше недоступна!',call.message.chat.id,call.message.message_id)
+        medit('История этой игры больше недоступна!',c.message.chat.id,c.message.message_id)
         return
 
     try:
-        bot.send_message(call.from_user.id, history[history_id])
+        bot.send_message(c.from_user.id, history[history_id])
     except:
-        bot.send_message(call.message.chat.id, call.from_user.first_name+', напишите боту в личку, чтобы я мог отправлять вам историю боя!')
+        bot.send_message(c.message.chat.id, c.from_user.first_name+', напишите боту в личку, чтобы я мог отправлять вам историю боя!')
 
 
 @bot.callback_query_handler(func=move_callback)
-def move_callback_handler(call):
+def move_callback_handler(c):
+    player = game_data.is_player_playing(c.from_user.id)
     kb = types.InlineKeyboardMarkup()
-    for near_location in nearlocs[player.location]:
-            kb.add(types.InlineKeyboardButton(text=loctoname(near_location), callback_data='move '+near_location))
+    for near_location in set(nearlocs[player.location]):
+        if near_location == player.location:
+            continue
+        kb.add(types.InlineKeyboardButton(text=loctoname(near_location), callback_data='move '+near_location))
     kb.add(types.InlineKeyboardButton(text='Назад', callback_data='back'))    
-    medit('Куда вы хотите направиться?',call.message.chat.id,call.message.message_id, reply_markup=kb)
+    medit('Куда вы хотите направиться?',c.message.chat.id,c.message.message_id, reply_markup=kb)
 
 
 @bot.callback_query_handler(func=items_callback)
-def items_callback_handler(call):
+def items_callback_handler(c):
+    player = game_data.is_player_playing(c.from_user.id)
     kb = types.InlineKeyboardMarkup()
     for item in player.items:
         item_name = itemtoname(item)
         if item_name:
             kb.add(types.InlineKeyboardButton(text=item_name, callback_data=item))
     kb.add(types.InlineKeyboardButton(text='Назад', callback_data='back'))
-    medit('Выберите предмет.', call.message.chat.id, call.message.message_id, reply_markup=kb)
+    medit('Выберите предмет.', c.message.chat.id, c.message.message_id, reply_markup=kb)
 
 
 @bot.callback_query_handler(func=camerainfo_callback)
-def camerainfo_callback_handler(call):
+def camerainfo_callback_handler(c):
     player = game_data.is_player_playing(c.from_user.id)
     game = player.game
     if player.role=='spy':
@@ -182,22 +175,22 @@ def camerainfo_callback_handler(call):
                     text+=other_player.name+' был замечен на камерах!\n'
         if text=='':
             text='У вас не установлено ни одной камеры!'
-        bot.answer_callback_query(call.id,text, show_alert=True)
+        bot.answer_callback_query(c.id,text, show_alert=True)
 
 
 @bot.callback_query_handler(func=wait_callback)
-def wait_callback_handler(call):
+def wait_callback_handler(c):
     player = game_data.is_player_playing(c.from_user.id)
     game = player.game
 
     player.ready = True
-    medit('Вы пропускаете ход. Ожидайте следующего хода...',call.message.chat.id, call.message.message_id)
+    medit('Вы пропускаете ход. Ожидайте следующего хода...',c.message.chat.id, c.message.message_id)
     player.lastloc = player.location
     game.player_step()
 
 
 @bot.callback_query_handler(func=mineremover_callback)
-def mineremover_callback_handler(call):
+def mineremover_callback_handler(c):
     player = game_data.is_player_playing(c.from_user.id)
     game = player.game
 
@@ -205,7 +198,7 @@ def mineremover_callback_handler(call):
     player.items.remove('mineremover')
     player.removemine = True            
     game.texttohistory+='Шпион '+player.name+' готовится обезвреживать мину-шокер.\n\n'
-    medit('Вы готовитесь обезвредить мину-шокер в своей следующей локации.', call.message.chat.id, call.message.message_id)
+    medit('Вы готовитесь обезвредить мину-шокер в своей следующей локации.', c.message.chat.id, c.message.message_id)
 
     kb=types.InlineKeyboardMarkup()
     kb.add(types.InlineKeyboardButton(text='Перемещение', callback_data='move'),types.InlineKeyboardButton(text='Предметы', callback_data='items'))
@@ -220,13 +213,13 @@ def mineremover_callback_handler(call):
 
 
 @bot.callback_query_handler(func=move_to_callback)
-def move_to_callback_handler(call):
+def move_to_callback_handler(c):
     player = game_data.is_player_playing(c.from_user.id)
     game = player.game
 
-    location = call.data.split(' ')[1]
+    location = c.data.split(' ')[1]
     player.lastloc=player.location
-    medit('Вы перемещаетесь в локацию: '+loctoname(location)+'.',call.message.chat.id, call.message.message_id)
+    medit('Вы перемещаетесь в локацию: '+loctoname(location)+'.',c.message.chat.id, c.message.message_id)
     player.location = location
     player.ready = True
     player.moving = True
@@ -236,14 +229,14 @@ def move_to_callback_handler(call):
 
 
 @bot.callback_query_handler(func=glasses_callback)
-def glasses_callback_handler(call):
+def glasses_callback_handler(c):
     player = game_data.is_player_playing(c.from_user.id)
     game = player.game
 
     player.items.remove('glasses')
     player.glasses = 1
     game.texttohistory+='Охранник '+player.name+' надел очко!\n\n'
-    medit('Вы успешно надели очки! На этот ход вы защищены от флэшек.', call.message.chat.id, call.message.message_id)
+    medit('Вы успешно надели очки! На этот ход вы защищены от флэшек.', c.message.chat.id, c.message.message_id)
     kb=types.InlineKeyboardMarkup()
     kb.add(types.InlineKeyboardButton(text='Перемещение', callback_data='move'),types.InlineKeyboardButton(text='Предметы', callback_data='items'))
     if player.role=='spy':
@@ -257,26 +250,26 @@ def glasses_callback_handler(call):
 
 
 @bot.callback_query_handler(func=pistol_callback)
-def pistol_callback_handler(call):
+def pistol_callback_handler(c):
     player = game_data.is_player_playing(c.from_user.id)
     game = player.game
 
     player.destroycamera = True            
     player.ready = True
     player.lastloc = player.location
-    medit('Выбрано действие: уничтожение вражеских камер.', call.message.chat.id, call.message.message_id)
+    medit('Выбрано действие: уничтожение вражеских камер.', c.message.chat.id, c.message.message_id)
     game.player_step()
 
 
 @bot.callback_query_handler(func=camera_callback)
-def camera_callback_handler(call):
+def camera_callback_handler(c):
     player = game_data.is_player_playing(c.from_user.id)
     game = player.game
 
     player.items.remove('camera')
     player.cameras.append(player.location)
     game.texttohistory+='Шпион '+player.name+' устанавливает камеру в локацию '+loctoname(player.location)+'!\n\n'
-    medit('Вы установили камеру в вашей текущей локации ('+loctoname(player.location)+')!', call.message.chat.id, call.message.message_id)
+    medit('Вы установили камеру в вашей текущей локации ('+loctoname(player.location)+')!', c.message.chat.id, c.message.message_id)
     kb=types.InlineKeyboardMarkup()
     kb.add(types.InlineKeyboardButton(text='Перемещение', callback_data='move'),types.InlineKeyboardButton(text='Предметы', callback_data='items'))
     if player.role=='spy':
@@ -290,7 +283,8 @@ def camera_callback_handler(call):
 
 
 @bot.callback_query_handler(func=flash_callback)
-def flash_callback_handler(call):
+def flash_callback_handler(c):
+    kb=types.InlineKeyboardMarkup()
     player = game_data.is_player_playing(c.from_user.id)
     for location in player.nearby_locations:
         if location != player.location:
@@ -298,19 +292,19 @@ def flash_callback_handler(call):
         else:
             kb.add(types.InlineKeyboardButton(text='Эта локация', callback_data='flash '+location))
     kb.add(types.InlineKeyboardButton(text='Назад', callback_data='back'))
-    medit('Выберите, куда будете кидать флэшку.', call.message.chat.id, call.message.message_id, reply_markup=kb)
+    medit('Выберите, куда будете кидать флэшку.', c.message.chat.id, c.message.message_id, reply_markup=kb)
     
 
 @bot.callback_query_handler(func=flash_to_callback)
-def flash_to_callback_handler(call):
+def flash_to_callback_handler(c):
     player = game_data.is_player_playing(c.from_user.id)
     game = player.game
 
-    location=call.data.split(' ')[1]
+    location=c.data.split(' ')[1]
     player.items.remove('flash')
     game.flashed.append(location)
 
-    medit('Вы бросили флэшку в локацию: '+loctoname(location)+'.', call.message.chat.id, call.message.message_id)
+    medit('Вы бросили флэшку в локацию: '+loctoname(location)+'.', c.message.chat.id, c.message.message_id)
     game.texttohistory+='Шпион '+player.name+' бросил флэшку в локацию '+loctoname(location)+'!\n\n'
     
     kb=types.InlineKeyboardMarkup()
@@ -326,7 +320,7 @@ def flash_to_callback_handler(call):
 
 
 @bot.callback_query_handler(func=costume_callback)
-def costume_callback_handler(call):
+def costume_callback_handler(c):
     player = game_data.is_player_playing(c.from_user.id)
     game = player.game
 
@@ -334,7 +328,7 @@ def costume_callback_handler(call):
     player.items.remove('costume')
     player.silent = True
     game.texttohistory+='Шпион '+player.name+' надел сапоги ниндзя!\n\n'
-    medit('Вы надели сапоги ниндзя! На этом ходу ваши передвижения не будут услышаны.', call.message.chat.id, call.message.message_id)
+    medit('Вы надели сапоги ниндзя! На этом ходу ваши передвижения не будут услышаны.', c.message.chat.id, c.message.message_id)
     kb.add(types.InlineKeyboardButton(text='Перемещение', callback_data='move'),types.InlineKeyboardButton(text='Предметы', callback_data='items'))
     if player.role=='spy':
         kb.add(types.InlineKeyboardButton(text='Инфо с камер', callback_data='camerainfo'))
@@ -347,14 +341,14 @@ def costume_callback_handler(call):
 
 
 @bot.callback_query_handler(func=shockmine_callback)
-def shockmine_callback_handler(call):
+def shockmine_callback_handler(c):
     player = game_data.is_player_playing(c.from_user.id)
     game = player.game
 
     kb=types.InlineKeyboardMarkup()
     player.items.remove('shockmine')
     game.texttohistory += 'Охранник '+player.name+' установил мину-шокер в локации '+loctoname(player.location)+'!\n\n'
-    medit('Вы устанавливаете мину-шокер.', call.message.chat.id, call.message.message_id)
+    medit('Вы устанавливаете мину-шокер.', c.message.chat.id, c.message.message_id)
     player.ready = True
     player.lastloc = player.location
     game.player_step()
@@ -362,7 +356,7 @@ def shockmine_callback_handler(call):
 
 
 @bot.callback_query_handler(func=back_callback)
-def back_callback_handler(call):
+def back_callback_handler(c):
     player = game_data.is_player_playing(c.from_user.id)
     kb=types.InlineKeyboardMarkup()
     kb.add(types.InlineKeyboardButton(text='Перемещение', callback_data='move'),types.InlineKeyboardButton(text='Предметы', callback_data='items'))
@@ -371,11 +365,11 @@ def back_callback_handler(call):
     if player.role=='security':
         kb.add(types.InlineKeyboardButton(text='Камера в сокровищнице', callback_data='treasureinfo'))
     kb.add(types.InlineKeyboardButton(text='Ожидать', callback_data='wait'))
-    medit('Выберите действие.', call.message.chat.id, call.message.message_id, reply_markup=kb)
+    medit('Выберите действие.', c.message.chat.id, c.message.message_id, reply_markup=kb)
 
 
 @bot.callback_query_handler(func=treasure_info_callback)
-def treasure_info_callback_handler(call):
+def treasure_info_callback_handler(c):
     player = game_data.is_player_playing(c.from_user.id)
     game = player.game
 
@@ -387,47 +381,7 @@ def treasure_info_callback_handler(call):
         if other_player.location=='treasure' and other_player.id != player.id:
             text += other_player.name+' был замечен на камере!\n'
     text += 'В комнате нет сокровища!!!' if stealed else 'Сокровище на месте.'              
-    bot.answer_callback_query(call.id,text, show_alert=True)               
-            
-def loctoname(x):
-    if x=='leftcorridor':
-        return 'Левый коридор'
-    if x=='rightcorridor':
-        return 'Правый коридор'
-    if x=='spystart':
-        return 'Старт шпионов'
-    if x=='treasure':
-        return 'Комната с сокровищем'
-    if x=='leftcorridor':
-        return 'Левый коридор'
-    if x=='leftpass':
-        return 'Левый обход'
-    if x=='rightpass':
-        return 'Правый обход'
-    if x=='antiflashroom':
-        return 'Светозащитная комната'
-    if x=='midcorridor':
-        return 'Центральный корридор'
-    if x=='stock':
-        return 'Склад'
-            
-def itemtoname(x):
-    if x=='flash':
-        return 'Флэшка'
-    elif x=='costume':
-        return 'Сапоги ниндзя'
-    elif x=='glasses':
-        return 'Защитные очки'
-    elif x=='pistol':
-        return 'Пистолет'
-    elif x=='camera':
-        return 'Камера'
-    elif x=='shockmine':
-        return 'Мина-шокер'
-    elif x=='mineremover':
-        return 'Водяная бомба'
-    else:
-        return None
+    bot.answer_callback_query(c.id,text, show_alert=True)               
         
 print('7777')
 bot.polling(none_stop=True,timeout=600)
