@@ -19,3 +19,13 @@ def move_callback(c):
 
 def items_callback(c):
     return game.is_player_playing(c.from_user.id) and c.data == 'items'
+
+def camerainfo_callback(c):
+    return game.is_player_playing(c.from_user.id) and c.data == 'camerainfo'
+
+def wait_callback(c):
+    return game.is_player_playing(c.from_user.id) and c.data == 'wait'
+
+def mineremover_callback(c):
+    player = game.is_player_playing(c.from_user.id)
+    return player and c.data == 'wait' and 'mineremover' in player.items

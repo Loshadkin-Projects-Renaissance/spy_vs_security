@@ -16,7 +16,7 @@ class Game:
         for game in self.games:
             for player in game.players:
                 if player.id == user_id and not player.ready:
-                    return True
+                    return player
 
 
 class GameSession:
@@ -96,6 +96,8 @@ class GameSession:
 
 class Player:
     def __init__(self, user_id, user_name, chat_id):
+        self.game = game_data.get_game(chat_id)
+
         self.id = user_id
         self.name = user_id
         self.location = None
