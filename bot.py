@@ -2,58 +2,19 @@
 import os
 import random
 import threading
-from telebot import types, TeleBot
+
 from pymongo import MongoClient
-import constants
+from constants import *
 from game import game_data
 from lambdas import *
 from config import *
-
-bot = TeleBot(token)
+from startup import bot, types
 
 history={}
 
 client=MongoClient(mongo_url)
 db=client.spyvssecurity
 stats=db.stats
-
-
-symbollist=['a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z',
-           '1','2','3','4','5','6','7','8','9','0']
-
-
-nearlocs={'spystart':['leftcorridor','rightcorridor','midcorridor'],
-          'leftcorridor':['spystart','treasure','leftpass'],
-          'rightcorridor':['spystart','treasure', 'rightpass'],
-          'rightpass':['rightcorridor','stock'],
-          'leftpass':['stock','leftcorridor'],
-          'treasure':['leftcorridor','rightcorridor','stock','midcorridor'],
-          'spystart':['leftcorridor','rightcorridor','midcorridor'],
-          'midcorridor':['spystart','treasure'],
-          'stock':['rightpass','leftpass','treasure']
-}
-nearlocs2={
-'a1':['a2','b1'],
-    'a2':['a1','a3','b2'],
-    'a3':['a2','a4','b3'],
-    'a4':['a3','b4'],
-    'b1':['a1','b2','c1'],
-    'b2':['b1','a2','b3','c2'],
-    'b3':['b2','a3','b4','c3'],
-    'b4':['b3','a4','c4'],
-    'c1':['b1','c2','d1'],
-    'c2':['c1','b2','c3','d2'],
-    'c3':['c2','b3','c4','d3'],
-    'c4':['c3','b4','d4'],
-    'd1':['c1','d2','e1'],
-    'd2':['d1','c2','d3','e2'],
-    'd3':['d2','c3','d4','e3'],
-    'd4':['d3','c4','e4'],
-    'e1':['d1','e2'],
-    'e2':['e1','d2','e3'],
-    'e3':['e2','d3','e4'],
-    'e4':['e3','d4']
-}
 
 
 @bot.message_handler(commands=['stats'])
@@ -107,9 +68,11 @@ def surrender_handler(m):
         text=player.name + ' сдался!'
     bot.send_message(m.chat.id, text)
      
+
 @bot.message_handler(commands=['map'])
 def map_handler(m):
-    bot.send_photo(m.chat.id, constants.map_file_id)
+    bot.send_photo(m.chat.id, map_file_id)
+
 
 @bot.message_handler(commands=['startgame'], func=game_not_started)
 def startgame_handler(m):
@@ -119,6 +82,7 @@ def startgame_handler(m):
     else:
         bot.send_message(m.chat.id, 'Недостаточно игроков!')
     
+
 @bot.message_handler(commands=['join'], func=game_not_started)
 def join_handler(m):
     game = game_data.get_game(m.chat.id)
@@ -140,184 +104,6 @@ def join_handler(m):
 
     game.join_player(m.from_user.id, m.from_user.first_name, m.chat.id)
     bot.send_message(m.chat.id, m.from_user.first_name+' присоединился!')
-        
- 
-def testturn(chat_id):
-    game = game_data.get_game(chat_id)
-    ready_players = [player for player in game.players if player.ready]
-    if len(ready_players) == len(game.players):
-        game.gametimer.cancel()
-        endturn(chat_id)
-        
-def endturn(id):
-    game = game_data.get_game(chat_id)
-    texttohistory=''
-
-    for player in game.players:
-        if player.role == 'spy':
-            g='шпиона'
-        else:
-            g='охранника'
-        game.texttohistory += f'Перемещение {g} {player.name}:\n{loctoname(player.lastloc)}\n |\nv\n{loctoname(player.location)}'
-
-        if not player.ready:
-            try:
-              medit('Время вышло!', player.messagetoedit.chat.id, player.messagetoedit.message_id)
-              game.texttohistory += player.name+' АФК!\n\n'
-            except:
-                 pass
-            player.lastloc = player.location
-
-    for player in game.players:
-        if not player.moving:
-            player.lastloc = player.location
-
-    text=''        
-
-    for player in game.players:
-        if player.setupcamera:
-            player.cameras.append(player.location)
-            game.texttohistory+=f'Шпион {player.name} устанавливает камеру в локацию {loctoname(player.location)}!\n\n'
-        if player.role == 'security' and player.location in game.flashed:
-            if player.glasses <= 0:
-               player.flashed = True 
-               game.texttohistory += 'Охранник '+player.name+' был ослеплен флэшкой!\n\n'
-               bot.send_message(player.id, 'Вы были ослеплены флэшкой! В следующий ход вы не сможете действовать.')
-            else:
-               game.texttohistory+='Охранник '+player.name+' избежал ослепления!\n\n'
-               bot.send_message(player.id, 'Очки спасли вас от флэшки!')
-        if player.role == 'spy' and player.location in game.shockminelocs:
-            if not player.removemine:
-                player.shocked = True
-                game.texttohistory+='Шпион '+player.name+' наступил на мину-шокер в локации '+loctoname(player.location)+'!\n\n'
-                bot.send_message(player.id,'Вы наступили на мину-шокер! В следующий ход вы не сможете действовать.')
-            else:
-                game.texttohistory+='Шпион '+player.name+' обезвредил мину-шокер в локации '+loctoname(player.location)+'!\n\n'
-                bot.send_message(player.id,'Вы обезвредили мину-шокер!')
-            try:
-                game.shockminelocs.remove(player.location)
-            except:
-                pass
-            
-        if player.destroycamera:
-            if not player.flashed:
-                for other_player in game.players:
-                    if player.location in other_player.cameras:
-                        other_player.cameras.remove(player.location)
-                        text+='Охранник уничтожил камеру шпиона в локации: '+loctoname(player.location)+'!\n'
-                        game.texttohistory+='Охранник '+player.name+' уничтожил камеру в локации '+loctoname(player.location)+'!\n\n'
-            else:
-                bot.send_message(player.id,'Вы были ослеплены! Камеры шпионов обнаружить не удалось.')
-                game.texttohistory+='Охранник '+player.name+' был ослеплён! Ему не удалось обнаружить камеры.\n\n'
-                                                                                                                        
-                
-        if player.stealing and not player.treasure:
-            player.treasure = True
-            game.texttohistory+='Шпион '+player.name+' украл сокровище!\n\n'
-            bot.send_message(player.id,'Вы успешно украли сокровище! Теперь выберитесь отсюда (Выход в той же локации, где вы начинали игру).')
-        
-        if player.role=='security':
-            for other_player in game.players:
-                if player.location == other_player.location and other_player.role != 'security':
-                    if not player.flashed and not other_player.disarmed:
-                        other_player.disarmed = True
-                        text+='Охранник нейтрализовал шпиона в локации: '+loctoname(player.location)+'!\n'
-                        game.texttohistory+='Охранник '+player.name+' нейтрализовал шпиона в локации '+loctoname(player.location)+'!\n\n'
-                        bot.send_message(player.id,'Вы нейтрализовали шпиона!')
-                    else:
-                        bot.send_message(other_player.id, 'В вашей текущей локации вы видите ослеплённого охранника! Поторопитесь уйти...') 
-                     
-        if player.role=='security' and player.flashed==0 and player.lastloc != player.location:
-            for other_player in game.players: 
-                if other_player.lastloc==player.location and other_player.location==player.lastloc and \
-                other_player.disarmed==0:
-                    text+='Шпион и охранник столкнулись в коридоре! Шпион нейтрализован!\n'
-                    game.texttohistory+='Охранник '+player.name+' нейтрализовал шпиона по пути в локацию '+loctoname(player.location)+'!\n\n'
-                    bot.send_message(player.id,'Вы нейтрализовали шпиона!')
-                    other_player.disarmed=1
-            
-        locs = ''
-        for near_location in player.nearby_locations:
-            if near_location != player.location:
-                locs += loctoname(near_location)+'\n'
-        hearinfo='Прослушиваемые вами локации в данный момент:\n'+locs+'\n' 
-        for other_player in game.players:
-            if player.can_hear(other_player):
-                if other_playerlocation != player.location:
-                    hearinfo+='Вы слышите движение в локации: '+loctoname(other_player.location)+'!\n'
-                else:
-                    hearinfo+='Вы слышите движение в вашей текущей локации!!\n'
-        bot.send_message(player.id, hearinfo)
-
-    for player in game.players:
-        if player.treasure and not player.disarmed and player.location=='spystart':
-            game.treasurestealed = True
-                    
-    if not text:
-        text = 'Ничего необычного...'
-    kb = types.InlineKeyboardMarkup()
-    kb.add(types.InlineKeyboardButton(text='История '+str(game.turn)+' хода', callback_data='history '+datagen(game.texttohistory)))
-    bot.send_message(id, 'Ход '+str(game.turn)+'. Ситуация в здании:\n\n'+text, reply_markup=kb)
-        
-    endgame=0    
-    spyalive=0    
-    for player in game.players:
-        if not player.disarmed and player.role=='spy':
-            spyalive += 1
-    if spyalive<=0:
-        endgame = True
-        winner='security'
-    if game.turn>=25:
-        endgame = True
-        winner='security'
-        game.texttohistory+='Победа охраны по причине: прошло 25 ходов!\n\n'
-    if game.treasurestealed:
-        endgame = True
-        winner='spy'
-    if not endgame:
-        for player in game.players:
-            if not player.flashed and not player.shocked:
-                if not player.disarmed:            
-                    bot.send_photo(player.id, map_file_id)
-                    sendacts(player)
-                else:
-                    player.ready = True
-            else:
-                player.lastloc = player.location
-                player.ready = True
-
-        game.gametimer = threading.Timer(90, endturn, args=[id])
-        game.gametimer.start()
-
-        game.turn+=1
-        game.flashed=[]
-        game.texttohistory=''
-        for player in game.players:
-            if not player.flashed and not player.shocked:
-                player.ready = False
-            player.stealing = False
-            if player.glasses>0:
-                player.glasses-=1
-            player.setupcamera            
-            player.moving = False
-            player.destroycamera            
-            player.silent = False
-            if player.flashed>0:
-                player.flashed-=1
-            if player.shocked>0:
-                player.shocked-=1
-            player.removemine    
-    else:
-        if winner=='security':
-            bot.send_message(game.id, 'Победа охраны!')
-            stats.update_one({},{'$inc':{'securitywins':1}})
-        else:
-            bot.send_message(game.id, 'Победа шпионов!')
-            stats.update_one({},{'$inc':{'spywins':1}})
-        try:
-            del game
-        except:
-            pass
 
                    
 def datagen(text):
@@ -417,10 +203,12 @@ def camerainfo_callback_handler(call):
 @bot.callback_query_handler(func=wait_callback)
 def wait_callback_handler(call):
     player = game_data.is_player_playing(c.from_user.id)
+    game = player.game
+
     player.ready = True
     medit('Вы пропускаете ход. Ожидайте следующего хода...',call.message.chat.id, call.message.message_id)
     player.lastloc = player.location
-    testturn(player.chatid)
+    game.player_step()
 
 
 @bot.callback_query_handler(func=mineremover_callback)
@@ -449,6 +237,7 @@ def mineremover_callback_handler(call):
 @bot.callback_query_handler(func=move_to_callback)
 def move_to_callback_handler(call):
     player = game_data.is_player_playing(c.from_user.id)
+    game = player.game
 
     location = call.data.split(' ')[1]
     player.lastloc=player.location
@@ -458,7 +247,7 @@ def move_to_callback_handler(call):
     player.moving = True
     if player.role=='spy' and player.location=='treasure':
         player.stealing = True
-    testturn(player.chatid)
+    game.player_step()
 
 
 @bot.callback_query_handler(func=glasses_callback)
@@ -485,12 +274,13 @@ def glasses_callback_handler(call):
 @bot.callback_query_handler(func=pistol_callback)
 def pistol_callback_handler(call):
     player = game_data.is_player_playing(c.from_user.id)
+    game = player.game
 
     player.destroycamera = True            
     player.ready = True
     player.lastloc = player.location
     medit('Выбрано действие: уничтожение вражеских камер.', call.message.chat.id, call.message.message_id)
-    testturn(player.chatid)
+    game.player_step()
 
 
 @bot.callback_query_handler(func=camera_callback)
@@ -582,7 +372,7 @@ def shockmine_callback_handler(call):
     medit('Вы устанавливаете мину-шокер.', call.message.chat.id, call.message.message_id)
     player.ready = True
     player.lastloc = player.location
-    testturn(player.chatid)
+    game.player_step()
     game.shockminelocs.append(player.location)
 
 

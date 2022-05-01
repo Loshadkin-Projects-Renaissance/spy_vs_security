@@ -1,3 +1,6 @@
+from constants import *
+from startup import bot, types
+
 class Game:
     def __init__(self):
         self.games = {}
@@ -35,6 +38,180 @@ class GameSession:
         self.texttohistory = ''
         self.shockminelocs = []
         self.maxplayers = player_count
+
+    def player_step(self):
+        ready_players = [player for player in self.players if player.ready]
+        if len(ready_players) == len(self.players):
+            self.gametimer.cancel()
+            self.end_turn()
+
+
+    def end_turn(self):
+        texttohistory=''
+
+        for player in self.players:
+            g = 'шпиона' if player.role == 'spy' else 'охранника'
+            self.texttohistory += f'Перемещение {g} {player.name}:\n{loctoname(player.lastloc)}\n |\nv\n{loctoname(player.location)}'
+
+            if not player.ready:
+                try:
+                    medit('Время вышло!', player.messagetoedit.chat.id, player.messagetoedit.message_id)
+                    self.texttohistory += player.name+' АФК!\n\n'
+                except:
+                    pass
+                player.lastloc = player.location
+
+        for player in self.players:
+            if not player.moving:
+                player.lastloc = player.location
+
+        text=''        
+
+        for player in self.players:
+            if player.setupcamera:
+                player.cameras.append(player.location)
+                self.texttohistory+=f'Шпион {player.name} устанавливает камеру в локацию {loctoname(player.location)}!\n\n'
+            if player.role == 'security' and player.location in self.flashed:
+                if player.glasses <= 0:
+                    player.flashed = True 
+                    self.texttohistory += 'Охранник '+player.name+' был ослеплен флэшкой!\n\n'
+                    bot.send_message(player.id, 'Вы были ослеплены флэшкой! В следующий ход вы не сможете действовать.')
+                else:
+                    self.texttohistory+='Охранник '+player.name+' избежал ослепления!\n\n'
+                    bot.send_message(player.id, 'Очки спасли вас от флэшки!')
+            if player.role == 'spy' and player.location in self.shockminelocs:
+                if not player.removemine:
+                    player.shocked = True
+                    self.texttohistory+='Шпион '+player.name+' наступил на мину-шокер в локации '+loctoname(player.location)+'!\n\n'
+                    bot.send_message(player.id,'Вы наступили на мину-шокер! В следующий ход вы не сможете действовать.')
+                else:
+                    self.texttohistory+='Шпион '+player.name+' обезвредил мину-шокер в локации '+loctoname(player.location)+'!\n\n'
+                    bot.send_message(player.id,'Вы обезвредили мину-шокер!')
+                try:
+                    self.shockminelocs.remove(player.location)
+                except:
+                    pass
+                
+            if player.destroycamera:
+                if not player.flashed:
+                    for other_player in self.players:
+                        if player.location in other_player.cameras:
+                            other_player.cameras.remove(player.location)
+                            text+='Охранник уничтожил камеру шпиона в локации: '+loctoname(player.location)+'!\n'
+                            self.texttohistory+='Охранник '+player.name+' уничтожил камеру в локации '+loctoname(player.location)+'!\n\n'
+                else:
+                    bot.send_message(player.id,'Вы были ослеплены! Камеры шпионов обнаружить не удалось.')
+                    self.texttohistory+='Охранник '+player.name+' был ослеплён! Ему не удалось обнаружить камеры.\n\n'
+                                                                                                                            
+                    
+            if player.stealing and not player.treasure:
+                player.treasure = True
+                self.texttohistory+='Шпион '+player.name+' украл сокровище!\n\n'
+                bot.send_message(player.id,'Вы успешно украли сокровище! Теперь выберитесь отсюда (Выход в той же локации, где вы начинали игру).')
+            
+            if player.role=='security':
+                for other_player in self.players:
+                    if player.location == other_player.location and other_player.role != 'security':
+                        if not player.flashed and not other_player.disarmed:
+                            other_player.disarmed = True
+                            text+='Охранник нейтрализовал шпиона в локации: '+loctoname(player.location)+'!\n'
+                            self.texttohistory+='Охранник '+player.name+' нейтрализовал шпиона в локации '+loctoname(player.location)+'!\n\n'
+                            bot.send_message(player.id,'Вы нейтрализовали шпиона!')
+                        else:
+                            bot.send_message(other_player.id, 'В вашей текущей локации вы видите ослеплённого охранника! Поторопитесь уйти...') 
+                        
+            if player.role=='security' and player.flashed==0 and player.lastloc != player.location:
+                for other_player in self.players: 
+                    if other_player.lastloc==player.location and other_player.location==player.lastloc and \
+                    other_player.disarmed==0:
+                        text+='Шпион и охранник столкнулись в коридоре! Шпион нейтрализован!\n'
+                        self.texttohistory+='Охранник '+player.name+' нейтрализовал шпиона по пути в локацию '+loctoname(player.location)+'!\n\n'
+                        bot.send_message(player.id,'Вы нейтрализовали шпиона!')
+                        other_player.disarmed=1
+                
+            locs = ''
+            for near_location in player.nearby_locations:
+                if near_location != player.location:
+                    locs += loctoname(near_location)+'\n'
+            hearinfo='Прослушиваемые вами локации в данный момент:\n'+locs+'\n' 
+            for other_player in self.players:
+                if player.can_hear(other_player):
+                    if other_playerlocation != player.location:
+                        hearinfo+='Вы слышите движение в локации: '+loctoname(other_player.location)+'!\n'
+                    else:
+                        hearinfo+='Вы слышите движение в вашей текущей локации!!\n'
+            bot.send_message(player.id, hearinfo)
+
+        for player in self.players:
+            if player.treasure and not player.disarmed and player.location=='spystart':
+                self.treasurestealed = True
+                        
+        if not text:
+            text = 'Ничего необычного...'
+        kb = types.InlineKeyboardMarkup()
+        kb.add(types.InlineKeyboardButton(text='История '+str(self.turn)+' хода', callback_data='history '+datagen(self.texttohistory)))
+        bot.send_message(self.id, 'Ход '+str(self.turn)+'. Ситуация в здании:\n\n'+text, reply_markup=kb)
+            
+        endgame=0    
+        spyalive=0    
+        for player in self.players:
+            if not player.disarmed and player.role=='spy':
+                spyalive += 1
+        if spyalive<=0:
+            endgame = True
+            winner='security'
+        if self.turn>=25:
+            endgame = True
+            winner='security'
+            self.texttohistory+='Победа охраны по причине: прошло 25 ходов!\n\n'
+        if self.treasurestealed:
+            endgame = True
+            winner='spy'
+        if not endgame:
+            for player in self.players:
+                if not player.flashed and not player.shocked:
+                    if not player.disarmed:            
+                        bot.send_photo(player.id, map_file_id)
+                        sendacts(player)
+                    else:
+                        player.ready = True
+                else:
+                    player.lastloc = player.location
+                    player.ready = True
+
+            self.gametimer = threading.Timer(90, self.end_turn)
+            self.gametimer.start()
+
+            self.turn+=1
+            self.flashed=[]
+            self.texttohistory=''
+            for player in self.players:
+                if not player.flashed and not player.shocked:
+                    player.ready = False
+                player.stealing = False
+                if player.glasses>0:
+                    player.glasses-=1
+                player.setupcamera            
+                player.moving = False
+                player.destroycamera            
+                player.silent = False
+                if player.flashed>0:
+                    player.flashed-=1
+                if player.shocked>0:
+                    player.shocked-=1
+                player.removemine    
+        else:
+            if winner=='security':
+                bot.send_message(self.id, 'Победа охраны!')
+                stats.update_one({},{'$inc':{'securitywins':1}})
+            else:
+                bot.send_message(self.id, 'Победа шпионов!')
+                stats.update_one({},{'$inc':{'spywins':1}})
+            try:
+                del game_data[self.id]
+            except:
+                pass
+
 
     def check_readiness(self):
         return self.maxplayers == len(self.players)
